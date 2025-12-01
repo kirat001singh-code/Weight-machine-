@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Bluetooth Weight Machine — Simulator</title>
+<style>
+  :root{
+    --bg1: linear-gradient(135deg,#08111a 10%, #0b2430 90%);
+    --card: rgba(255,255,255,0.04);
+    --accent: #00d5ff;
+    --glass: rgba(255,255,255,0.04);
+    --green: #7CFC00;
+  }
+  *{box-sizing:border-box;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial;}
+  html,body{height:100%;margin:0;background:var(--bg1);color:#fff;-webkit-font-smoothing:antialiased}
+  .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{
+    width:420px;max-width:100%;
+    background:var(--card);
+    border-radius:16px;
+    padding:20px;
+    box-shadow:0 8px 30px rgba(2,6,23,0.7);
+    backdrop-filter: blur(8px);
+    border:1px solid rgba(255,255,255,0.04);
+  }
+  .header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+  .logo{width:46px;height:46px;border-radius:10px;background:linear-gradient(135deg,#032 40%,#036);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
+  h1{font-size:18px;margin:0}
+  p.desc{margin:6px 0 14px;font-size:13px;color:rgba(255,255,255,0.75)}
+  .display{
+    height:110px;border-radius:12px;background:#000;color:var(--green);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:40px;letter-spacing:1px;
+    box-shadow: inset 0 0 40px rgba(124,252,0,0.06), 0 6px 30px rgba(0,0,0,0.6);
+    border:2px solid rgba(124,252,0,0.08);
+    margin-bottom:14px;
+  }
+  .controls{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .btn{
+    padding:12px 14px;border-radius:12px;border:2px solid var(--accent);background:transparent;color:#fff;font-weight:700;
+    min-width:110px;text-align:center;cursor:pointer;transition:all .18s;outline: none;
+  }
+  .btn:active{transform:translateY(2px) scale(.99);box-shadow:0 6px 20px rgba(0,213,255,0.08); background: rgba(0,213,255,0.06);}
+  .btn.primary{background:linear-gradient(90deg, rgba(0,213,255,0.06), rgba(0,213,255,0.02));}
+  .status{font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px}
+  .key{padding:14px;border-radius:10px;border:2px solid rgba(255,255,255,0.06);background:transparent;font-size:18px;font-weight:800;cursor:pointer;transition:all .12s}
+  .key:active{transform:scale(.95);background:rgba(255,255,255,0.02);border-color:var(--accent)}
+  .row{display:flex;gap:10px}
+  .wide{grid-column:span 3;padding:12px;border-radius:10px;border:2px solid rgba(255,255,255,0.06);background:transparent}
+  .log{margin-top:12px;font-size:13px;color:rgba(255,255,255,0.72);max-height:120px;overflow:auto;padding:8px;border-radius:8px;border:1px dashed rgba(255,255,255,0.03)}
+  .muted{color:rgba(255,255,255,0.5);font-size:12px;margin-top:8px}
+  .outline{border:2px dashed rgba(255,255,255,0.04);padding:8px;border-radius:8px;margin-top:10px;font-size:13px}
+  @media (max-width:420px){ .display{font-size:34px;height:92px} .btn{min-width:48%;} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card" role="application" aria-label="Bluetooth Weight Machine">
+      <div class="header">
+        <div class="logo">Wt</div>
+        <div>
+          <h1>Bluetooth Weight Machine</h1>
+          <p class="desc">Keyboard se type karo → "Send" se tumhara BLE device par weight chala jayega. (NUS / UART-style GATT)</p>
+        </div>
+      </div>
+
+      <div id="display" class="display">0.00 kg</div>
+
+      <div class="controls">
+        <button id="connectBtn" class="btn primary">Connect</button>
+        <button id="disconnectBtn" class="btn" disabled>Disconnect</button>
+        <button id="sendBtn" class="btn" disabled>Send</button>
+        <button id="lockBtn" class="btn" disabled>Lock</button>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input id="inputValue" type="text" inputmode="numeric" placeholder="Type number here" class="wide" />
+      </div>
+
+      <div class="keypad" aria-hidden="false" style="margin-top:10px">
+        <button class="key">1</button>
+        <button class="key">2</button>
+        <button class="key">3</button>
+        <button class="key">4</button>
+        <button class="key">5</button>
+        <button class="key">6</button>
+        <button class="key">7</button>
+        <button class="key">8</button>
+        <button class="key">9</button>
+        <button class="key">.</button>
+        <button class="key">0</button>
+        <button id="backKey" class="key">⌫</button>
+      </div>
+
+      <div class="muted">Tip: Press <strong>Enter</strong> to send. "Lock" will freeze display until unlocked.</div>
+
+      <div id="log" class="log" aria-live="polite">Ready.</div>
+
+      <div class="outline">
+        <strong>Note:</strong> Web Bluetooth works in secure contexts (HTTPS or localhost) and Chrome-based browsers on Android/PC. The receiving microcontroller should implement a GATT characteristic that accepts writes (e.g. Nordic UART RX: <code>6E400002-B5A3-F393-E0A9-E50E24DCCA9E</code>).
+      </div>
+    </section>
+  </div>
+
+<script>
+/* === Bluetooth Weight Machine JS ===
+   - Uses Nordic UART Service UUIDs by default
+   - Sends ASCII text (e.g. "72.50\n") to the write characteristic
+   - Keeps UI modern and mobile-friendly
+*/
+
+const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'.toLowerCase();
+const NUS_TX_CHAR = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'.toLowerCase(); // write from client -> peripheral (often called RX on peripheral)
+const NUS_RX_CHAR = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'.toLowerCase(); // notify from peripheral -> client
+
+let device = null, server = null, writeChar = null, notifyChar = null;
+let locked = false;
+
+const connectBtn = document.getElementById('connectBtn');
+const disconnectBtn = document.getElementById('disconnectBtn');
+const sendBtn = document.getElementById('sendBtn');
+const lockBtn = document.getElementById('lockBtn');
+const input = document.getElementById('inputValue');
+const display = document.getElementById('display');
+const logEl = document.getElementById('log');
+
+function log(msg){
+  const time = new Date().toLocaleTimeString();
+  logEl.innerHTML = `<div>[${time}] ${msg}</div>` + logEl.innerHTML;
+}
+
+// UI helpers
+function setConnected(yes){
+  connectBtn.disabled = yes;
+  disconnectBtn.disabled = !yes;
+  sendBtn.disabled = !yes;
+  lockBtn.disabled = !yes;
+  if(!yes){
+    connectBtn.textContent = 'Connect';
+  } else {
+    connectBtn.textContent = 'Connected';
+  }
+}
+
+// update display nicely
+function updateDisplayFromValue(val){
+  if(locked) return;
+  if(val === '' || isNaN(Number(val))){
+    display.textContent = '0.00 kg';
+  } else {
+    display.textContent = (Number(val)).toFixed(2) + ' kg';
+  }
+}
+
+// keypad behavior
+document.querySelectorAll('.key').forEach(k=>{
+  k.addEventListener('click', ()=>{
+    const v = k.textContent;
+    if(v === '⌫'){ // handled separately
+      input.value = input.value.slice(0,-1);
+    } else {
+      input.value += v;
+    }
+    updateDisplayFromValue(input.value);
+    input.focus();
+  });
+});
+
+document.getElementById('backKey').addEventListener('click', ()=>{
+  // already handled above but keep explicit
+  input.value = input.value.slice(0,-1);
+  updateDisplayFromValue(input.value);
+});
+
+// keyboard support: numbers, backspace, enter
+input.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    sendWeight();
+  } else if(e.key === 'Escape'){
+    input.value = '';
+    updateDisplayFromValue(input.value);
+  } else if(e.key === 'Backspace'){
+    // default works
+    setTimeout(()=>updateDisplayFromValue(input.value), 0);
+  } else if((/^[0-9.]$/).test(e.key)){
+    // accept
+    setTimeout(()=>updateDisplayFromValue(input.value), 0);
+  } else {
+    // block other chars
+    if(!['ArrowLeft','ArrowRight','Tab'].includes(e.key)){
+      // allow navigation keys
+      if(!e.ctrlKey && !e.metaKey) e.preventDefault();
+    }
+  }
+});
+
+input.addEventListener('input', ()=> updateDisplayFromValue(input.value));
+
+/* === Bluetooth functions === */
+
+async function connectBluetooth(){
+  if(!navigator.bluetooth){
+    log('Web Bluetooth not supported in this browser.');
+    alert('Web Bluetooth unsupported. Use Chrome on Android/PC or a compatible browser with HTTPS.');
+    return;
+  }
+
+  try {
+    log('Requesting Bluetooth device...');
+    device = await navigator.bluetooth.requestDevice({
+      // filters: [{ services: [NUS_SERVICE] }], // sometimes devices do not advertise service in scan; using optionalServices covers more
+      acceptAllDevices: true,
+      optionalServices: [NUS_SERVICE]
+    });
+
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+
+    log('Connecting to GATT server...');
+    server = await device.gatt.connect();
+
+    log('Getting service...');
+    const service = await server.getPrimaryService(NUS_SERVICE);
+
+    log('Getting write characteristic...');
+    try {
+      writeChar = await service.getCharacteristic(NUS_TX_CHAR);
+    } catch (e){
+      log('Write characteristic not found with TX UUID. Trying RX UUID as fallback...');
+      // some peripherals swap names — try the other char
+      writeChar = await service.getCharacteristic(NUS_RX_CHAR);
+    }
+
+    // try to get notify char to receive messages
+    try {
+      notifyChar = await service.getCharacteristic(NUS_RX_CHAR);
+      await notifyChar.startNotifications();
+      notifyChar.addEventListener('characteristicvaluechanged', handleNotifications);
+    } catch (e){
+      log('Notify characteristic not available (optional).');
+      notifyChar = null;
+    }
+
+    setConnected(true);
+    log(`Connected to "${device.name || 'Unnamed Device'}".`);
+  } catch (err){
+    console.error(err);
+    log('Connection error: ' + (err.message || err));
+    if(device && device.gatt && device.gatt.connected){
+      // nothing
+    } else {
+      setConnected(false);
+    }
+  }
+}
+
+function onDisconnected(){
+  log('Device disconnected.');
+  setConnected(false);
+  writeChar = null;
+  notifyChar = null;
+  device = null;
+  server = null;
+}
+
+async function disconnectBluetooth(){
+  if(device && device.gatt && device.gatt.connected){
+    device.gatt.disconnect();
+    log('Disconnecting...');
+  } else {
+    log('No device connected.');
+  }
+  setConnected(false);
+}
+
+/* handle incoming notifications (if device sends back) */
+function handleNotifications(event){
+  const value = event.target.value;
+  // decode as UTF-8 string
+  const decoder = new TextDecoder('utf-8');
+  const text = decoder.decode(value);
+  log('Received: ' + text);
+}
+
+/* send weight as ASCII text; append newline so many MCUs can parse */
+async function sendWeight(){
+  if(!writeChar){
+    log('Not connected to a writable characteristic.');
+    alert('No writable characteristic. Ensure device supports NUS-style write.');
+    return;
+  }
+  const raw = input.value.trim();
+  if(raw === '' || isNaN(Number(raw))){
+    alert('Please enter a number first.');
+    return;
+  }
+  // format to 2 decimal places
+  const payload = Number(raw).toFixed(2) + '\n';
+  const encoder = new TextEncoder();
+  const data = encoder.encode(payload);
+
+  try {
+    // some BLE characteristics have max write size smaller → split chunks if needed
+    const MTU = 120; // safe chunk size
+    for(let i=0;i<data.length;i+=MTU){
+      const chunk = data.slice(i, i+MTU);
+      await writeChar.writeValueWithoutResponse ? writeChar.writeValueWithoutResponse(chunk) : writeChar.writeValue(chunk);
+      // small delay optional
+    }
+    log('Sent: ' + payload.trim());
+    // visual feedback: lock briefly
+    flashSent();
+  } catch (err){
+    console.error(err);
+    log('Send failed: ' + (err.message || err));
+    alert('Send failed: ' + (err.message || err));
+  }
+}
+
+function flashSent(){
+  const orig = display.textContent;
+  display.style.transition = 'transform .12s';
+  display.style.transform = 'scale(0.98)';
+  setTimeout(()=>{ display.style.transform = ''; }, 140);
+}
+
+/* UI event bindings */
+connectBtn.addEventListener('click', connectBluetooth);
+disconnectBtn.addEventListener('click', disconnectBluetooth);
+sendBtn.addEventListener('click', sendWeight);
+
+lockBtn.addEventListener('click', ()=>{
+  locked = !locked;
+  lockBtn.textContent = locked ? 'Unlock' : 'Lock';
+  log(locked ? 'Display locked.' : 'Display unlocked.');
+});
+
+/* auto update display when input changes */
+input.addEventListener('input', ()=>updateDisplayFromValue(input.value));
+
+/* initialize */
+updateDisplayFromValue('');
+setConnected(false);
+
+log('Page ready. Press Connect to choose BLE device.');
+</script>
+</body>
+</html>
